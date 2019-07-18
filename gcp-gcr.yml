@@ -1,0 +1,267 @@
+# This code is licensed from CircleCI to the user under the MIT license. See
+# https://circleci.com/orbs/registry/licensing for details.
+commands:
+  build:
+    description: Build a Docker image
+    parameters:
+      google-project-id:
+        default: GOOGLE_PROJECT_ID
+        description: The Google project ID to connect with via the gcloud CLI
+        type: env_var_name
+      image:
+        description: A name for your Docker image
+        type: string
+      path-to-dockerfile:
+        default: Dockerfile
+        description: The relative path to the Dockerfile to use when building image
+        type: string
+      registry-url:
+        default: gcr.io
+        description: The GCR registry URL from ['', us, eu, asia].gcr.io
+        type: string
+      tag:
+        default: latest
+        description: A Docker image tag
+        type: string
+      build-token-arg:
+        default: NPM_TOKEN
+        description: Build token argument
+        type: env_var_name
+    steps:
+    - run:
+        command: |
+          if [ $<<parameters.tag>> ]; then TAG_TYPE=$<<parameters.tag>>; else TAG_TYPE=$CIRCLE_SHA1; fi
+          if [ $<<parameters.build-token-arg>> ]; then BUILD_ARGS="--build-arg token=$<<parameters.build-token-arg>>"; fi
+          docker build . -t \
+            <<parameters.registry-url>>/$<<parameters.google-project-id>>/<<parameters.image>>:$TAG_TYPE \
+            -f <<parameters.path-to-dockerfile>> $BUILD_ARGS
+        name: Build docker image
+  gcr-auth:
+    description: |
+      Configure Docker to use gcloud as a credential helper. Using this command requires the use of a 'machine' executor.
+    parameters:
+      gcloud-service-key:
+        default: GCLOUD_SERVICE_KEY
+        description: The gcloud service key
+        type: env_var_name
+      google-compute-zone:
+        default: GOOGLE_COMPUTE_ZONE
+        description: |
+          The Google compute zone to connect with via the gcloud CLI
+        type: env_var_name
+      google-project-id:
+        default: GOOGLE_PROJECT_ID
+        description: |
+          Environment variable name for the Google project ID to connect with via the gcloud CLI
+        type: env_var_name
+    steps:
+    - gcp-cli/install
+    - gcp-cli/initialize:
+        gcloud-service-key: <<parameters.gcloud-service-key>>
+        google-compute-zone: <<parameters.google-compute-zone>>
+        google-project-id: <<parameters.google-project-id>>
+    - run:
+        command: |
+          # Set sudo to work whether logged in as root user or non-root user
+          if [[ $EUID == 0 ]]; then export SUDO=""; else export SUDO="sudo"; fi
+
+          # configure Docker to use gcloud as a credential helper
+          mkdir -p "$HOME/.docker"
+          gcloud auth configure-docker --quiet --project $<<parameters.google-project-id>>
+
+          # if applicable, provide user access to the docker config file
+          if [[ -d "$HOME/.docker" ]]; then
+            $SUDO chown "$USER:$USER" "$HOME/.docker" -R
+          fi
+          if [[ -d "$HOME/.config" ]]; then
+            $SUDO chown "$USER:$USER" "$HOME/.config" -R
+          fi
+        name: gcloud auth configure-docker
+  push-image:
+    description: Push a container image to the GCR registry
+    parameters:
+      google-project-id:
+        default: GOOGLE_PROJECT_ID
+        description: The Google project ID to connect with via the gcloud CLI
+        type: env_var_name
+      image:
+        description: A name for your docker image
+        type: string
+      registry-url:
+        default: gcr.io
+        description: The GCR registry URL from ['', us, eu, asia].gcr.io
+        type: string
+      tag:
+        default: latest
+        description: A docker image tag
+        type: string
+    steps:
+    - run:
+        command: |
+          if [ $<<parameters.tag>> ]; then TAG_TYPE=$<<parameters.tag>>; else TAG_TYPE=$CIRCLE_SHA1; fi
+          docker push <<parameters.registry-url>>/$<<parameters.google-project-id>>/<<parameters.image>>:$TAG_TYPE
+        name: Push image to GCR
+  tag-image:
+    description: Push a container image to the GCR registry
+    parameters:
+      google-project-id:
+        default: GOOGLE_PROJECT_ID
+        description: The Google project ID to connect with via the gcloud CLI
+        type: env_var_name
+      image:
+        description: A Docker image name
+        type: string
+      registry-url:
+        default: gcr.io
+        description: The GCR registry URL from ['', us, eu, asia].gcr.io
+        type: string
+      source-tag:
+        description: An existing Docker image tag
+        type: string
+      target-tag:
+        description: A new Docker image tag
+        type: string
+    steps:
+    - run:
+        command: |
+          IMAGE_ROOT=<<parameters.registry-url>>/$<<parameters.google-project-id>>/<<parameters.image>>
+          gcloud container images add-tag --quiet \
+            "${IMAGE_ROOT}:<<parameters.source-tag>>" \
+            "${IMAGE_ROOT}:<<parameters.target-tag>>"
+        name: Add <<parameters.target-tag>> tag to <<parameters.registry-url>>/$<<parameters.google-project-id>>/<<parameters.image>>:<<parameters.source-tag>>
+description: |
+  An orb for working with Google Container Registry (GCR). View this orb's source: https://github.com/carecloud-devops/orbs
+examples:
+  simple-build-and-push:
+    description: |
+      Log into Google Cloud Plaform, then build and push image to GCR
+    usage:
+      orbs:
+        gcp-gcr: carecloud/gcp-gcr@x.y.z
+      version: 2.1
+      workflows:
+        build_and_push_image:
+          jobs:
+          - gcp-gcr/build-and-push-image:
+              context: myContext
+              image: my-image
+              registry-url: us.gcr.io
+  tag-existing-image:
+    description: |
+      Log into Google Cloud Plaform, then tag an existing image with "latest"
+    usage:
+      orbs:
+        gcp-gcr: carecloud/gcp-gcr@x.y.z
+      version: 2.1
+      workflows:
+        build_and_push_image:
+          jobs:
+          - gcp-gcr/add-image-tag:
+              context: myContext
+              image: my-image
+              registry-url: us.gcr.io
+              source-tag: mytag1
+              target-tag: mytag2
+executors:
+  default:
+    description: A debian-based machine executor
+    machine: true
+jobs:
+  add-image-tag:
+    description: |
+      Install GCP CLI, if needed, and configure. Adds a tag to an existing image.
+    executor: default
+    parameters:
+      gcloud-service-key:
+        default: GCLOUD_SERVICE_KEY
+        description: The gcloud service key
+        type: env_var_name
+      google-compute-zone:
+        default: GOOGLE_COMPUTE_ZONE
+        description: The Google compute zone to connect with via the gcloud CLI
+        type: env_var_name
+      google-project-id:
+        default: GOOGLE_PROJECT_ID
+        description: The Google project ID to connect with via the gcloud CLI
+        type: env_var_name
+      image:
+        description: A name for your Docker image
+        type: string
+      registry-url:
+        default: gcr.io
+        description: The GCR registry URL from ['', us, eu, asia].gcr.io
+        type: string
+      source-tag:
+        description: An existing Docker image tag
+        type: string
+      target-tag:
+        description: A new Docker image tag
+        type: string
+    steps:
+    - gcr-auth:
+        gcloud-service-key: <<parameters.gcloud-service-key>>
+        google-compute-zone: <<parameters.google-compute-zone>>
+        google-project-id: <<parameters.google-project-id>>
+    - tag-image:
+        google-project-id: <<parameters.google-project-id>>
+        image: <<parameters.image>>
+        registry-url: <<parameters.registry-url>>
+        source-tag: <<parameters.source-tag>>
+        target-tag: <<parameters.target-tag>>
+  build-and-push-image:
+    description: |
+      Install GCP CLI, if needed, and configure. Build and push image to repository.
+    executor: default
+    parameters:
+      gcloud-service-key:
+        default: GCLOUD_SERVICE_KEY
+        description: The gcloud service key
+        type: env_var_name
+      google-compute-zone:
+        default: GOOGLE_COMPUTE_ZONE
+        description: The Google compute zone to connect with via the gcloud CLI
+        type: env_var_name
+      google-project-id:
+        default: GOOGLE_PROJECT_ID
+        description: The Google project ID to connect with via the gcloud CLI
+        type: env_var_name
+      image:
+        description: A name for your docker image
+        type: string
+      path-to-dockerfile:
+        default: Dockerfile
+        description: The relative path to the Dockerfile to use when building image
+        type: string
+      registry-url:
+        default: gcr.io
+        description: The GCR registry URL from ['', us, eu, asia].gcr.io
+        type: string
+      tag:
+        default: CIRCLE_SHA1
+        description: A docker image tag
+        type: env_var_name
+      build-token-arg:
+        default: NPM_TOKEN
+        description: Build token argument
+        type: env_var_name
+    steps:
+    - checkout
+    - gcr-auth:
+        gcloud-service-key: <<parameters.gcloud-service-key>>
+        google-compute-zone: <<parameters.google-compute-zone>>
+        google-project-id: <<parameters.google-project-id>>
+    - build:
+        google-project-id: <<parameters.google-project-id>>
+        image: <<parameters.image>>
+        path-to-dockerfile: <<parameters.path-to-dockerfile>>
+        registry-url: <<parameters.registry-url>>
+        tag: << parameters.tag >>
+        build-token-arg: <<parameters.build-token-arg>>
+    - push-image:
+        google-project-id: <<parameters.google-project-id>>
+        image: <<parameters.image>>
+        registry-url: <<parameters.registry-url>>
+        tag: <<parameters.tag>>
+orbs:
+  gcp-cli: circleci/gcp-cli@1.3.0
+version: 2.1

@@ -1,0 +1,115 @@
+commands:
+  build:
+    description: Build docker image
+    parameters:
+      image:
+        description: A name for your Docker image
+        type: string
+      path-to-dockerfile:
+        default: Dockerfile
+        description: The relative path to the Dockerfile to use when building image
+        type: string
+      tag:
+        default: latest
+        description: A Docker image tag
+        type: string
+      build-token-arg:
+        default: NPM_TOKEN
+        description: Build token argument
+        type: env_var_name
+    steps:
+    - run:
+        command: |
+            if [ $<<parameters.build-token-arg>> ]; then BUILD_ARGS="--build-arg token=$<<parameters.build-token-arg>>"; fi
+            docker build . -t \
+              <<parameters.image>>:<<parameters.tag>> \
+              -f <<parameters.path-to-dockerfile>> $BUILD_ARGS
+        name: Build docker image
+    - run:
+        command: docker save -o image.tar <<parameters.image>>
+        name: Save docker image
+    - persist_to_workspace:
+          root: ~/project
+          paths:
+            - image.tar
+  run-image:
+    parameters:
+      health-check-path:
+        default: .well-known/apollo/server-health
+        description: Health Check Path
+        type: string
+    description: |
+      Run docker image
+    steps:
+    - run:
+        command: docker run -p 8080:80 test
+        background: true
+        name: Run docker image
+    - run:
+        command: sleep 5
+    - run:
+        name: Health Check
+        command: curl -X GET http://localhost:8080/<<parameters.health-check-path>>
+description: |
+  An orb for working with docker. View this orb's source: https://github.com/carecloud-devops/orbs
+examples:
+  build-image:
+    description: |
+      Build docker image
+    usage:
+      orbs:
+        docker: carecloud/docker@x.y.z
+      version: 2.1
+      workflows:
+        create-k8-patch:
+          jobs:
+          - docker/build-image:
+              context: myContext
+              image: test-image
+              path-to-dockerfile: test/Dockerfile
+              tag: dev
+              build-token-arg: TEST_TOKEN
+executors:
+  default:
+    description: Docker executor
+    machine: true
+jobs:
+  build-image:
+    description: |
+      Build docker image
+    executor: default
+    parameters:
+      image:
+        description: A name for your docker image
+        type: string
+      path-to-dockerfile:
+        default: Dockerfile
+        description: The relative path to the Dockerfile to use when building image
+        type: string
+      tag:
+        default: latest
+        description: A docker image tag
+        type: env_var_name
+      build-token-arg:
+        default: NPM_TOKEN
+        description: Build token argument
+        type: env_var_name
+    steps:
+    - checkout
+    - build:
+        image: <<parameters.image>>
+        path-to-dockerfile: <<parameters.path-to-dockerfile>>
+        tag: << parameters.tag >>
+        build-token-arg: <<parameters.build-token-arg>>
+  load-and-run:
+    description: |
+      Load docker image and run
+    executor: default
+    steps:
+      - attach_workspace:
+          at: ~/project
+      - run:
+          command: docker load -i image.tar
+          name: Load docker image
+      - run-image
+version: 2.1

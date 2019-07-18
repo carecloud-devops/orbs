@@ -1,0 +1,146 @@
+commands:
+  gcr-auth:
+    description: |
+      Configure Docker to use gcloud as a credential helper.
+    parameters:
+      gcloud-service-key:
+        default: GCLOUD_SERVICE_KEY
+        description: The gcloud service key
+        type: env_var_name
+      google-compute-zone:
+        default: GOOGLE_COMPUTE_ZONE
+        description: |
+          The Google compute zone to connect with via the gcloud CLI
+        type: env_var_name
+      google-project-id:
+        default: GOOGLE_PROJECT_ID
+        description: |
+          Environment variable name for the Google project ID to connect with via the gcloud CLI
+        type: env_var_name
+    steps:
+    - gcp-cli/install
+    - gcp-cli/initialize:
+        gcloud-service-key: <<parameters.gcloud-service-key>>
+        google-compute-zone: <<parameters.google-compute-zone>>
+        google-project-id: <<parameters.google-project-id>>
+  gen-kube-config:
+    description: Generate kubernetes config
+    parameters:
+      google-cluster:
+        default: GOOGLE_CLUSTER
+        description: Kubernetes Cluster
+        type: env_var_name
+    steps:
+    - run:
+        command: |
+          gcloud container clusters get-credentials $<<parameters.google-cluster>> \
+              --project $GOOGLE_PROJECT_ID \
+              --zone $GOOGLE_COMPUTE_ZONE
+        name: Get kubernetes credentials
+    - persist_to_workspace:
+          root: /kube
+          paths:
+            - config
+  k8-apply:
+    description: Run kubectl apply command
+    parameters:
+      k8-folder:
+        default: kubernetes
+        description: Kubernetes folder containing ymls
+        type: string
+    steps:
+    - run:
+        command: |
+          kubectl apply --recursive -f <<parameters.k8-folder>>
+        name: Run kubectl apply command
+description: |
+  An orb for working with Google Kubernetes Engine (GKE). View this orb's source: https://github.com/carecloud-devops/orbs
+examples:
+  create-kube-config:
+    description: |
+      Log into Google Cloud Plaform, then get kubernetes config for cluster
+    usage:
+      orbs:
+        gcp-kms: carecloud/gcp-gke@x.y.z
+      version: 2.1
+      workflows:
+        create-kube-config:
+          jobs:
+          - gcp-gke/create-kube-config:
+              context: myContext
+              cluster: GOOGLE_CLUSTER
+executors:
+  default:
+    description: A debian-based machine executor
+    docker:
+      - image: google/cloud-sdk
+    environment:
+      KUBECONFIG: /kube/config
+jobs:
+  create-kube-config:
+    description: |
+      Install GCP CLI, if needed, and configure. Get kubernetes config for cluster
+    executor: default
+    parameters:
+      gcloud-service-key:
+        default: GCLOUD_SERVICE_KEY
+        description: The gcloud service key
+        type: env_var_name
+      google-compute-zone:
+        default: GOOGLE_COMPUTE_ZONE
+        description: The Google compute zone to connect with via the gcloud CLI
+        type: env_var_name
+      google-project-id:
+        default: GOOGLE_PROJECT_ID
+        description: The Google project ID to connect with via the gcloud CLI
+        type: env_var_name
+      google-cluster:
+        default: GOOGLE_CLUSTER
+        description: Cluster Name
+        type: env_var_name
+    steps:
+    - checkout
+    - gcr-auth:
+        gcloud-service-key: <<parameters.gcloud-service-key>>
+        google-compute-zone: <<parameters.google-compute-zone>>
+        google-project-id: <<parameters.google-project-id>>
+    - gen-kube-config:
+        google-cluster: <<parameters.google-cluster>>
+  apply:
+    description: |
+      Install GCP CLI, if needed, and configure. Get kubernetes config for cluster and apply ymls
+    executor: default
+    parameters:
+      gcloud-service-key:
+        default: GCLOUD_SERVICE_KEY
+        description: The gcloud service key
+        type: env_var_name
+      google-compute-zone:
+        default: GOOGLE_COMPUTE_ZONE
+        description: The Google compute zone to connect with via the gcloud CLI
+        type: env_var_name
+      google-project-id:
+        default: GOOGLE_PROJECT_ID
+        description: The Google project ID to connect with via the gcloud CLI
+        type: env_var_name
+      google-cluster:
+        default: GOOGLE_CLUSTER
+        description: Cluster Name
+        type: env_var_name
+      k8-folder:
+        default: kubernetes
+        description: Kubernetes folder containing ymls
+        type: string
+    steps:
+    - checkout
+    - gcr-auth:
+        gcloud-service-key: <<parameters.gcloud-service-key>>
+        google-compute-zone: <<parameters.google-compute-zone>>
+        google-project-id: <<parameters.google-project-id>>
+    - gen-kube-config:
+        google-cluster: <<parameters.google-cluster>>
+    - k8-apply:
+        k8-folder: <<parameters.k8-folder>>
+orbs:
+  gcp-cli: circleci/gcp-cli@1.3.0
+version: 2.1

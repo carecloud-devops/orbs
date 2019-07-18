@@ -1,0 +1,51 @@
+commands:
+  run-jest:
+    description: |
+      Run jest tests
+    steps:
+    - run:
+        name: Test Suite
+        command: npm run test --testResultsProcessor="jest-junit"
+    - store_test_results:
+        path: reports
+  install:
+    description: |
+      Install dependencies
+    steps:
+    - run:
+          name: Register with CareCloud NPM
+          command: echo "//registry.npmjs.org/:_authToken=$NPM_TOKEN" >> ~/.npmrc
+    - run:
+        name: Install dependencies
+        command: npm ci
+description: |
+  An orb for working with node. View this orb's source: https://github.com/CareCloud/node
+examples:
+  jest:
+    description: |
+      Run jest tests
+    usage:
+      orbs:
+        docker: carecloud/node@x.y.z
+      version: 2.1
+      workflows:
+        run-jest:
+          jobs:
+          - node/jest
+executors:
+  default:
+    description: Node executor
+    docker:
+      - image: circleci/node:10.13
+    environment:
+      JEST_JUNIT_OUTPUT: 'reports/junit/js-test-results.xml'
+jobs:
+  jest:
+    description: |
+      Run jest tests
+    executor: default
+    steps:
+    - checkout
+    - install
+    - run-jest
+version: 2.1

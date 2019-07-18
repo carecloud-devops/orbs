@@ -1,0 +1,175 @@
+commands:
+  gcr-auth:
+    description: |
+      Configure Docker to use gcloud as a credential helper. Using this command requires the use of a 'machine' executor.
+    parameters:
+      gcloud-service-key:
+        default: GCLOUD_SERVICE_KEY
+        description: The gcloud service key
+        type: env_var_name
+      google-compute-zone:
+        default: GOOGLE_COMPUTE_ZONE
+        description: |
+          The Google compute zone to connect with via the gcloud CLI
+        type: env_var_name
+      google-project-id:
+        default: GOOGLE_PROJECT_ID
+        description: |
+          Environment variable name for the Google project ID to connect with via the gcloud CLI
+        type: env_var_name
+    steps:
+    - gcp-cli/install
+    - gcp-cli/initialize:
+        gcloud-service-key: <<parameters.gcloud-service-key>>
+        google-compute-zone: <<parameters.google-compute-zone>>
+        google-project-id: <<parameters.google-project-id>>
+  gen-k8-patch:
+    description: Generate kubernetes patch yaml file
+    parameters:
+      google-project-id:
+        default: GOOGLE_PROJECT_ID
+        description: |
+          Environment variable name for the Google project ID to connect with via the gcloud CLI
+        type: env_var_name
+      github-branch:
+        default: GH_BRANCH
+        description: Github infrastructure branch
+        type: env_var_name
+      github-owner:
+        default: GH_OWNER
+        description: Github organization/owner
+        type: env_var_name
+      github-repo:
+        description: Github infrastructure repo
+        type: string
+      github-email:
+        default: GH_EMAIL
+        description: Github config email
+        type: env_var_name
+      k8-container-name:
+        default: K8_CONTAINER_NAME
+        description: Kubernetes container name
+        type: string
+    steps:
+    - run:
+        command: |
+            if [ $CIRCLE_TAG ]; then TAG_TYPE=$CIRCLE_TAG; else TAG_TYPE=$CIRCLE_SHA1; fi
+            hub config --global credential.https://github.com.helper /usr/local/bin/hub-credential-helper
+            hub config --global hub.protocol https
+            hub config --global user.email $<<parameters.github-email>>
+            hub config --global user.name "Circle CI Builder"
+            hub clone "$<<parameters.github-owner>>/<<parameters.github-repo>>"
+            cd <<parameters.github-repo>>
+            hub checkout $<<parameters.github-branch>>
+            cat \<<EOF > patch.yaml
+            spec:
+              template:
+                spec:
+                  containers:
+                    - name: <<parameters.k8-container-name>>
+                      image: gcr.io/$<<parameters.google-project-id>>/<<parameters.k8-container-name>>:${TAG_TYPE}
+            EOF
+            kubectl patch --local -o yaml \
+              -f kubernetes/deployments/<<parameters.k8-container-name>>.yaml \
+              -p "$(cat patch.yaml)" \
+              > <<parameters.k8-container-name>>.yaml
+            mv <<parameters.k8-container-name>>.yaml kubernetes/deployments/<<parameters.k8-container-name>>.yaml
+            hub add kubernetes/deployments/<<parameters.k8-container-name>>.yaml
+
+            hub commit -F- \<<EOF
+            Update the <<parameters.k8-container-name>>-application
+            This commit updates the <<parameters.k8-container-name>> deployment container image to:
+                gcr.io/$<<parameters.google-project-id>>/<<parameters.k8-container-name>>:${TAG_TYPE}.
+            Build ID: ${CIRCLE_BUILD_NUM}
+            EOF
+            hub push origin $<<parameters.github-branch>>
+        name: Generate kubernetes patch yaml file and push to infrastructure repo
+description: |
+  An orb for working with Github. View this orb's source: https://github.com/carecloud-devops/orbs
+examples:
+  create-k8-patch:
+    description: |
+      Log into Google Cloud Plaform, then clone infrastructure repo, create kubernetes patch, and push to branch
+    usage:
+      orbs:
+        github: carecloud/github@x.y.z
+      version: 2.1
+      workflows:
+        create-k8-patch:
+          jobs:
+          - github/create-k8-patch:
+              context: myContext
+              github-branch: dev
+              github-owner: CareCloud
+              github-repo: test-repo
+              github-email: test@carecloud.com
+              k8-container-name: test-container-name
+executors:
+  default:
+    description: Github/Kubernetes executor
+    docker:
+      - image: gcr.io/carecloud/hub
+        auth:
+          username: _json_key
+          password: $GCLOUD_SERVICE_KEY
+    environment:
+      HUB_CONFIG: /root/project/hub
+      KUBECONFIG: /root/project/config
+jobs:
+  create-k8-patch:
+    description: |
+      Install GCP CLI, if needed, and configure. Clone infrastructure repo, create kubernetes patch, and push to branch.
+    executor: default
+    parameters:
+      gcloud-service-key:
+        default: GCLOUD_SERVICE_KEY
+        description: The gcloud service key
+        type: env_var_name
+      google-compute-zone:
+        default: GOOGLE_COMPUTE_ZONE
+        description: The Google compute zone to connect with via the gcloud CLI
+        type: env_var_name
+      google-project-id:
+        default: GOOGLE_PROJECT_ID
+        description: The Google project ID to connect with via the gcloud CLI
+        type: env_var_name
+      google-cluster:
+        default: GOOGLE_CLUSTER
+        description: Cluster Name
+        type: env_var_name
+      github-branch:
+        default: GH_BRANCH
+        description: Github infrastructure branch
+        type: env_var_name
+      github-owner:
+        default: GH_OWNER
+        description: Github organization/owner
+        type: env_var_name
+      github-repo:
+        description: Github infrastructure repo
+        type: string
+      github-email:
+        default: GH_EMAIL
+        description: Github config email
+        type: env_var_name
+      k8-container-name:
+        default: K8_CONTAINER_NAME
+        description: Kubernetes Container Name
+        type: string
+    steps:
+    - gcr-auth:
+        gcloud-service-key: <<parameters.gcloud-service-key>>
+        google-compute-zone: <<parameters.google-compute-zone>>
+        google-project-id: <<parameters.google-project-id>>
+    - attach_workspace:
+          at: /root/project
+    - gen-k8-patch:
+        google-project-id: <<parameters.google-project-id>>
+        github-branch: <<parameters.github-branch>>
+        github-owner: <<parameters.github-owner>>
+        github-repo: <<parameters.github-repo>>
+        github-email: <<parameters.github-email>>
+        k8-container-name: <<parameters.k8-container-name>>
+orbs:
+  gcp-cli: circleci/gcp-cli@1.3.0
+version: 2.1
