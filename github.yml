@@ -50,6 +50,10 @@ commands:
         default: K8_CONTAINER_NAME
         description: Kubernetes container name
         type: string
+      add-consumer:
+        default: false
+        description: Add consumer container to the patch
+        type: boolean
     steps:
     - run:
         command: |
@@ -69,6 +73,12 @@ commands:
                     - name: <<parameters.k8-container-name>>
                       image: gcr.io/$<<parameters.google-project-id>>/<<parameters.k8-container-name>>:${TAG_TYPE}
             EOF
+            if <<parameters.add-consumer>>
+            then cat \<<EOF >> patch.yaml
+                    - name: <<parameters.k8-container-name>>
+                      image: gcr.io/$<<parameters.google-project-id>>/<<parameters.k8-container-name>>:${TAG_TYPE}
+            EOF
+            fi
             kubectl patch --local -o yaml \
               -f kubernetes/deployments/<<parameters.k8-container-name>>.yaml \
               -p "$(cat patch.yaml)" \
@@ -76,12 +86,19 @@ commands:
             mv <<parameters.k8-container-name>>.yaml kubernetes/deployments/<<parameters.k8-container-name>>.yaml
             hub add kubernetes/deployments/<<parameters.k8-container-name>>.yaml
 
+            COMMIT_IMAGES=$"gcr.io/$<<parameters.google-project-id>>/<<parameters.k8-container-name>>:${TAG_TYPE}"
+            if <<parameters.add-consumer>>
+            then COMMIT_IMAGES+=$'\n  '
+            COMMIT_IMAGES+=$"gcr.io/$<<parameters.google-project-id>>/<<parameters.k8-container-name>>-consumer:${TAG_TYPE}."
+            fi
+  
             hub commit -F- \<<EOF
             Update the <<parameters.k8-container-name>>-application
             This commit updates the <<parameters.k8-container-name>> deployment container image to:
-                gcr.io/$<<parameters.google-project-id>>/<<parameters.k8-container-name>>:${TAG_TYPE}.
+              $COMMIT_IMAGES
             Build ID: ${CIRCLE_BUILD_NUM}
             EOF
+            
             hub push origin $<<parameters.github-branch>>
         name: Generate kubernetes patch yaml file and push to infrastructure repo
 description: |
@@ -156,6 +173,10 @@ jobs:
         default: K8_CONTAINER_NAME
         description: Kubernetes Container Name
         type: string
+      add-consumer:
+        default: false
+        description: Add consumer container to the patch
+        type: boolean
     steps:
     - gcr-auth:
         gcloud-service-key: <<parameters.gcloud-service-key>>
@@ -170,6 +191,7 @@ jobs:
         github-repo: <<parameters.github-repo>>
         github-email: <<parameters.github-email>>
         k8-container-name: <<parameters.k8-container-name>>
+        add-consumer: <<parameters.add-consumer>>
 orbs:
-  gcp-cli: circleci/gcp-cli@1.3.0
+  gcp-cli: circleci/gcp-cli@1.8.2
 version: 2.1
