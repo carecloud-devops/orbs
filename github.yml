@@ -75,8 +75,8 @@ commands:
             EOF
             if <<parameters.add-consumer>>
             then cat \<<EOF >> patch.yaml
-                    - name: <<parameters.k8-container-name>>
-                      image: gcr.io/$<<parameters.google-project-id>>/<<parameters.k8-container-name>>:${TAG_TYPE}
+                    - name: <<parameters.k8-container-name>>-consumer
+                      image: gcr.io/$<<parameters.google-project-id>>/<<parameters.k8-container-name>>-consumer:${TAG_TYPE}
             EOF
             fi
             kubectl patch --local -o yaml \
