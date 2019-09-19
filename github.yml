@@ -54,10 +54,18 @@ commands:
         default: false
         description: Add consumer container to the patch
         type: boolean
+      image:
+        default: ""
+        description: Name of the gcr.io image. Defaults to k8-container-name
+        type: string
     steps:
     - run:
         command: |
-            if [ $CIRCLE_TAG ]; then TAG_TYPE=$CIRCLE_TAG; else TAG_TYPE=$CIRCLE_SHA1; fi
+            if [ $CIRCLE_TAG ]; then TAG_TYPE=$CIRCLE_TAG; else TAG_TYPE=$CIRCLE_SHA1; fi            
+            if [ "<<parameters.image>>" == "" ]
+              then IMAGE_NAME=<<parameters.k8-container-name>>
+              else IMAGE_NAME=<<parameters.image>>
+            fi
             hub config --global credential.https://github.com.helper /usr/local/bin/hub-credential-helper
             hub config --global hub.protocol https
             hub config --global user.email $<<parameters.github-email>>
@@ -71,12 +79,12 @@ commands:
                 spec:
                   containers:
                     - name: <<parameters.k8-container-name>>
-                      image: gcr.io/$<<parameters.google-project-id>>/<<parameters.k8-container-name>>:${TAG_TYPE}
+                      image: gcr.io/$<<parameters.google-project-id>>/${IMAGE_NAME}:${TAG_TYPE}
             EOF
             if <<parameters.add-consumer>>
             then cat \<<EOF >> patch.yaml
                     - name: <<parameters.k8-container-name>>-consumer
-                      image: gcr.io/$<<parameters.google-project-id>>/<<parameters.k8-container-name>>-consumer:${TAG_TYPE}
+                      image: gcr.io/$<<parameters.google-project-id>>/${IMAGE_NAME}-consumer:${TAG_TYPE}
             EOF
             fi
             kubectl patch --local -o yaml \
@@ -86,14 +94,14 @@ commands:
             mv <<parameters.k8-container-name>>.yaml kubernetes/deployments/<<parameters.k8-container-name>>.yaml
             hub add kubernetes/deployments/<<parameters.k8-container-name>>.yaml
 
-            COMMIT_IMAGES=$"gcr.io/$<<parameters.google-project-id>>/<<parameters.k8-container-name>>:${TAG_TYPE}"
+            COMMIT_IMAGES=$"gcr.io/$<<parameters.google-project-id>>/${IMAGE_NAME}:${TAG_TYPE}"
             if <<parameters.add-consumer>>
             then COMMIT_IMAGES+=$'\n  '
-            COMMIT_IMAGES+=$"gcr.io/$<<parameters.google-project-id>>/<<parameters.k8-container-name>>-consumer:${TAG_TYPE}."
+            COMMIT_IMAGES+=$"gcr.io/$<<parameters.google-project-id>>/${IMAGE_NAME}-consumer:${TAG_TYPE}."
             fi
   
             hub commit -F- \<<EOF
-            Update the <<parameters.k8-container-name>>-application
+            Update the <<parameters.k8-container-name>> application
             This commit updates the <<parameters.k8-container-name>> deployment container image to:
               $COMMIT_IMAGES
             Build ID: ${CIRCLE_BUILD_NUM}
@@ -177,6 +185,10 @@ jobs:
         default: false
         description: Add consumer container to the patch
         type: boolean
+      image:
+        default: ""
+        description: Name of the gcr.io image. Defaults to k8-container-name
+        type: string
     steps:
     - gcr-auth:
         gcloud-service-key: <<parameters.gcloud-service-key>>
@@ -192,6 +204,7 @@ jobs:
         github-email: <<parameters.github-email>>
         k8-container-name: <<parameters.k8-container-name>>
         add-consumer: <<parameters.add-consumer>>
+        image: <<parameters.image>>
 orbs:
   gcp-cli: circleci/gcp-cli@1.8.2
 version: 2.1
