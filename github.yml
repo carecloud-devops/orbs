@@ -126,6 +126,60 @@ commands:
             hub push origin $<<parameters.github-branch>>
 
         name: Generate kubernetes patch yaml files and push to infrastructure repo
+  gen-ui-patch:
+    description: Generate UI infrastructure repo patch yaml file
+    parameters:
+      google-project-id:
+        default: GOOGLE_PROJECT_ID
+        description: |
+          Environment variable name for the Google project ID to connect with via the gcloud CLI
+        type: env_var_name
+      github-branch:
+        default: GH_BRANCH
+        description: Github infrastructure branch
+        type: env_var_name
+      github-owner:
+        default: GH_OWNER
+        description: Github organization/owner
+        type: env_var_name
+      github-repo:
+        description: Github infrastructure repo
+        type: string
+      github-email:
+        default: GH_EMAIL
+        description: Github config email
+        type: env_var_name
+    steps:
+    - run:
+        command: |
+            # Clone and checkout repo
+            hub config --global credential.https://github.com.helper /usr/local/bin/hub-credential-helper
+            hub config --global hub.protocol https
+            hub config --global user.email $<<parameters.github-email>>
+            hub config --global user.name "Circle CI Builder"
+            hub clone "$<<parameters.github-owner>>/<<parameters.github-repo>>"
+            cd <<parameters.github-repo>>
+            hub checkout $<<parameters.github-branch>>
+
+            # Determine tag for image, may be git tag or commit sha
+            if [ $CIRCLE_TAG ]; then TAG_TYPE=$CIRCLE_TAG; else TAG_TYPE=$CIRCLE_SHA1; fi            
+            echo "Updating build image to: gcr.io/$<<parameters.google-project-id>>/<<parameters.github-repo>>:${TAG_TYPE}"
+            
+            # Create and commit patch to infrastructure repo service yaml
+            echo gcr.io/$<<parameters.google-project-id>>/<<parameters.github-repo>>:${TAG_TYPE} > build
+            hub add build
+            
+            # Build commit image string
+            hub commit -F- \<<EOF
+                  Update the <<parameters.github-repo>> application
+                  This commit updates the <<parameters.github-repo>> container image to: gcr.io/$<<parameters.google-project-id>>/<<parameters.github-repo>>:${TAG_TYPE}
+                  Build ID: ${CIRCLE_BUILD_NUM}
+            EOF
+
+            # Push the committed patches
+            hub push origin $<<parameters.github-branch>>
+
+        name: Generate ui patch file and push to infrastructure repo
 description: |
   An orb for working with Github. View this orb's source: https://github.com/carecloud-devops/orbs
 examples:
@@ -222,6 +276,54 @@ jobs:
         k8-container-name: <<parameters.k8-container-name>>
         add-consumer: <<parameters.add-consumer>>
         image: <<parameters.image>>
+  create-ui-patch:
+    description: Install GCP CLI, clone infrastructure repo, create UI build patch, and push to branch.
+    executor: default
+    parameters:
+      gcloud-service-key:
+        default: GCLOUD_SERVICE_KEY
+        description: The gcloud service key
+        type: env_var_name
+      google-compute-zone:
+        default: GOOGLE_COMPUTE_ZONE
+        description: The Google compute zone to connect with via the gcloud CLI
+        type: env_var_name
+      google-project-id:
+        default: GOOGLE_PROJECT_ID
+        description: The Google project ID to connect with via the gcloud CLI
+        type: env_var_name
+      google-cluster:
+        default: GOOGLE_CLUSTER
+        description: Cluster Name
+        type: env_var_name
+      github-branch:
+        default: GH_BRANCH
+        description: Github infrastructure branch
+        type: env_var_name
+      github-owner:
+        default: GH_OWNER
+        description: Github organization/owner
+        type: env_var_name
+      github-repo:
+        description: Github infrastructure repo
+        type: string
+      github-email:
+        default: GH_EMAIL
+        description: Github config email
+        type: env_var_name
+    steps:
+    - gcr-auth:
+        gcloud-service-key: <<parameters.gcloud-service-key>>
+        google-compute-zone: <<parameters.google-compute-zone>>
+        google-project-id: <<parameters.google-project-id>>
+    - attach_workspace:
+          at: /root/project
+    - gen-ui-patch:
+        google-project-id: <<parameters.google-project-id>>
+        github-branch: <<parameters.github-branch>>
+        github-owner: <<parameters.github-owner>>
+        github-repo: <<parameters.github-repo>>
+        github-email: <<parameters.github-email>>
 orbs:
   gcp-cli: circleci/gcp-cli@1.8.2
 version: 2.1
