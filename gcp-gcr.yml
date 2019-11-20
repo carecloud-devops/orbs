@@ -217,6 +217,7 @@ jobs:
     description: |
       Install GCP CLI, if needed, and configure. Build and push image to repository.
     executor: default
+    resource_class: <<parameters.resource-class>>
     parameters:
       gcloud-service-key:
         default: GCLOUD_SERVICE_KEY
@@ -249,6 +250,10 @@ jobs:
         default: NPM_TOKEN
         description: Build token argument
         type: env_var_name
+      resource-class:
+        default: medium
+        description: Machine resource_class for building image
+        type: string
     steps:
     - checkout
     - gcr-auth:
